@@ -1,6 +1,7 @@
 import os
 import json
 import requests
+import re
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
@@ -22,20 +23,20 @@ def send_telegram(message):
     except: pass
 
 def get_price():
-    # خواندن مستقیم از فایل JSON مخفی TGJU (دقیق‌ترین روش)
     try:
-        url = "https://r.jina.ai/https://call1.tgju.org/ajax.json"
+        url = "https://r.jina.ai/https://www.tgju.org/profile/gerami"
         r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=25)
         if r.status_code == 200:
-            text = r.text
-            start = text.find('{')
-            end = text.rfind('}') + 1
-            if start != -1 and end != 0:
-                data = json.loads(text[start:end])
-                # استخراج دقیق قیمت گرمی ۱۸ عیار
-                price_rial = data["current"]["gerami"]["p"]
-                # تبدیل ریال به تومان
-                return float(price_rial.replace(",", "")) / 10
+            # پیدا کردن تمام اعدادی که فرمت ۳ رقمی با کاما دارند (مثل 245,000,000)
+            matches = re.findall(r'([0-9]{3},[0-9]{3},[0-9]{3})', r.text)
+            for m in matches:
+                price_rial = float(m.replace(",", ""))
+                price_toman = price_rial / 10
+                
+                # --- فیلتر امنیتی (Sanity Check) ---
+                # فقط اعدادی که بین ۲۰ تا ۳۰ میلیون تومان هستند، قیمت گرم ۱۸ عیار محسوب می‌شوند
+                if 20000000 <= price_toman <= 30000000:
+                    return price_toman
     except:
         pass
     return None
@@ -51,7 +52,7 @@ def save_state(state):
 def main():
     price = get_price()
     
-    # اگر قیمت پیدا نشد، هیچ سیگنالی صادر نمی‌کنیم (تا عدد اشتباه نره)
+    # اگر قیمت پیدا نشد یا عددی خارج از محدوده بود (مثل قیمت سکه)، هیچ پیامی نمی‌فرستد
     if not price:
         return
 
