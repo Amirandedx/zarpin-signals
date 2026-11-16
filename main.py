@@ -8,9 +8,9 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 STATE_FILE = "state.json"
 
 # تنظیمات استراتژی
-LOW_ZONE_MIN = 24200000
-LOW_ZONE_MAX = 24300000
-BREAKOUT_PRICE = 24850000
+LOW_ZONE_MIN = 24300000
+LOW_ZONE_MAX = 24400000
+BREAKOUT_PRICE = 24800000
 SL_PCT = 0.015  # 1.5%
 TP_PCT = 0.03   # 3%
 
@@ -58,7 +58,7 @@ def main():
         return
 
     # --- این خط همیشه قیمت رو به تلگرامت می‌فرسته ---
-    send_telegram(f"💰 قیمت لحظه‌ای طلا: {price:,.0f} تومان")
+    # send_telegram(f"💰 قیمت لحظه‌ای طلا: {price:,.0f} تومان")
 
     state = load_state()
     pos = state.get("position")
