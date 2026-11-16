@@ -1,6 +1,5 @@
 import os
 import requests
-import json
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
@@ -15,44 +14,35 @@ def send_telegram(message):
     except Exception:
         pass
 
-def get_price():
-    # تلاش اول: پروکسی برای گرفتن از خود زرپین
-    proxy_url = "https://api.cors.lol/?url=https://api-khazaneh.zarpin.com/v1/prc/prices/"
+def get_gold_price():
+    # استفاده از API رسمی TGJU برای طلای 18 عیار (گرمی)
+    url = "https://api.tgju.org/v1/market/indicator/summary-table-data/gold_18k"
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     
     try:
-        r = requests.get(proxy_url, headers=headers, timeout=10)
+        r = requests.get(url, headers=headers, timeout=15)
         if r.status_code == 200:
             data = r.json()
-            for item in data:
-                if item.get("code") == "GOLD_IRT":
-                    return float(item["price"]), "زرپین"
-    except Exception:
-        pass # اگر نشد میره سراغ روش دوم
-
-    # تلاش دوم: گرفتن قیمت از TGJU (مرجع قیمت طلا)
-    try:
-        tgju_url = "https://call1.tgju.org/ajax.json"
-        r = requests.get(tgju_url, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            # در سایت TGJU، کلید gerami مربوط به طلای 18 عیار است
-            price_str = data['current']['gerami']['p'] # مثل "45,200,000"
-            price = float(price_str.replace(',', ''))
-            return price, "TGJU (جایگزین)"
+            # استخراج قیمت از دیتای TGJU (قیمت به ریال است)
+            price_str = data["current"][0]["value"]
+            # حذف کاما از عدد (مثلا 245,000,000 میشه 245000000)
+            clean_price = float(price_str.replace(",", ""))
+            # تبدیل ریال به تومان (تقسیم بر 10)
+            toman_price = clean_price / 10
+            return toman_price
     except Exception as e:
-        print(f"TGJU Error: {e}")
-
-    return None, "هیچ منبعی پاسخ نداد"
+        print(f"Error getting price: {e}")
+    return None
 
 def main():
-    send_telegram("⏳ در حال تلاش برای دریافت قیمت...")
-    price, source = get_price()
+    send_telegram("⏳ در حال دریافت قیمت طلا از TGJU...")
+    price = get_gold_price()
     
     if price:
-        send_telegram(f"✅ قیمت با موفقیت دریافت شد (از {source}):\n💰 {price:,.0f} تومان")
+        # پیام تستی برای اینکه ببینیم قیمت درست اومده یا نه
+        send_telegram(f"✅ قیمت طلای ۱۸ عیار (گرمی):\n💰 {price:,.0f} تومان")
     else:
-        send_telegram("❌ متاسفانه هیچ منبعی پاسخ نداد. لطفا بعدا تلاش کنید.")
+        send_telegram("❌ متاسفانه در دریافت قیمت از TGJU خطایی رخ داد.")
 
 if __name__ == "__main__":
     main()
