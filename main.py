@@ -10,7 +10,7 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 def get_gold_price():
     # استفاده از سرویس Jina AI برای دور زدن محدودیت IP
     url = "https://r.jina.ai/https://api-khazaneh.zarpin.com/v1/prc/prices/"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         r = requests.get(url, headers=headers, timeout=20)
         if r.status_code == 200:
@@ -18,16 +18,12 @@ def get_gold_price():
             start = text.find('[')
             end = text.rfind(']') + 1
             if start != -1 and end != 0:
-                json_str = text[start:end]
-                data = json.loads(json_str)
+                data = json.loads(text[start:end])
                 for item in data:
                     if item.get("code") == "GOLD_IRT":
-                        print("Price found successfully!")
                         return float(item["price"])
     except Exception as e:
         print(f"Error getting price: {e}")
-    
-    print("Error: could not get price.")
     return None
 
 def send_telegram(message):
@@ -38,7 +34,7 @@ def send_telegram(message):
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
     try:
         requests.post(url, json=payload, timeout=10)
- except Exception as e:
+    except Exception as e:
         print(f"Error sending telegram: {e}")
 
 def main():
@@ -53,8 +49,8 @@ def main():
 
     # اگر قیمت بیشتر از 24,850,000 بود، سیگنال خرید بفرست (تستی)
     if price > 24850000:
-        message = f"🚨 <b>سیگنال خرید (تستی)</b> 🚨\nقیمت به {price:,.0f} رسید!\n⏰ {datetime.now():%H:%M}"
-        send_telegram(message)
+        msg = f"🚨 <b>سیگنال خرید (تستی)</b> 🚨\nقیمت به {price:,.0f} رسید!\n⏰ {datetime.now():%H:%M}"
+        send_telegram(msg)
         print("Signal sent!")
 
 if __name__ == "__main__":
