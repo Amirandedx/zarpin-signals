@@ -23,6 +23,7 @@ def send_telegram(message):
     except: pass
 
 def get_price():
+    # تلاش اول: خواندن از TGJU
     try:
         url = "https://r.jina.ai/https://www.tgju.org/profile/gerami"
         r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=20)
@@ -32,7 +33,7 @@ def get_price():
                 return float(matches[0].replace(",", "")) / 10
     except: pass
     
-    # روش پشتیبان (اگر TGJU جواب نداد)
+    # تلاش دوم: محاسبه ریاضی
     try:
         gold = requests.get("https://api.gold-api.com/price/XAU", timeout=10).json()["price"]
         usd = requests.get("https://api.nobitex.ir/v2/orderbook/USDTIRT", timeout=10).json()["lastTradePrice"]
@@ -51,7 +52,13 @@ def save_state(state):
 
 def main():
     price = get_price()
-    if not price: return
+    
+    if not price:
+        send_telegram("❌ متاسفانه در دریافت قیمت خطایی رخ داد.")
+        return
+
+    # --- این خط همیشه قیمت رو به تلگرامت می‌فرسته ---
+    send_telegram(f"💰 قیمت لحظه‌ای طلا: {price:,.0f} تومان")
 
     state = load_state()
     pos = state.get("position")
@@ -66,13 +73,10 @@ def main():
             send_telegram(f"🔴🔴 <b>STOP-LOSS فعال شد</b> 🔴🔴\nقیمت: {price:,.0f}\nEntry: {entry:,.0f}\n⚡ سریع در اپ زرپین بفروش!")
             state["position"] = None
             save_state(state)
-            return
-            
-        if price >= tp:
+        elif price >= tp:
             send_telegram(f"🟢🟢 <b>TAKE-PROFIT فعال شد</b> 🟢🟢\nقیمت: {price:,.0f}\nEntry: {entry:,.0f}\n⚡ سریع در اپ زرپین بفروش!")
             state["position"] = None
             save_state(state)
-            return
 
     # --- بررسی سیگنال خرید ---
     else:
@@ -80,7 +84,6 @@ def main():
             send_telegram(f"🚀🚀 <b>سیگنال خرید (شکست مقاومت)</b> 🚀🚀\nقیمت: {price:,.0f}\n⚡ سریع در اپ زرپین بخر!")
             state["position"] = {"entry": price}
             save_state(state)
-            
         elif LOW_ZONE_MIN <= price <= LOW_ZONE_MAX:
             send_telegram(f"🎣🎣 <b>سیگنال خرید (شکار کف)</b> 🎣🎣\nقیمت: {price:,.0f}\n⚡ سریع در اپ زرپین بخر!")
             state["position"] = {"entry": price}
