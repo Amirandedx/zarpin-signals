@@ -1,4 +1,4 @@
- import os
+import os
 import json
 import requests
 from datetime import datetime
@@ -38,7 +38,7 @@ def send_telegram(message):
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
     try:
         requests.post(url, json=payload, timeout=10)
-    except Exception as e:
+ except Exception as e:
         print(f"Error sending telegram: {e}")
 
 def main():
