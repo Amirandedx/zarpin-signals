@@ -35,6 +35,7 @@ def send_telegram(message):
 # --- منطق سیگنال ---
 def main():
     price = get_gold_price()
+        send_telegram("🔔 <b>تست موفقیت‌آمیز!</b>\nاتصال ربات به تلگرام برقرار شد. 🎉")
     if price is None:
         return
     
