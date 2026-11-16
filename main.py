@@ -7,12 +7,12 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 STATE_FILE = "state.json"
 
-# تنظیمات استراتژی
-LOW_ZONE_MIN = 24300000
+# --- تنظیمات نهایی بر اساس چارت زرپین و داریک ---
+LOW_ZONE_MIN = 24300000   # شکار کف
 LOW_ZONE_MAX = 24350000
-BREAKOUT_PRICE = 24650000
-SL_PCT = 0.015  # 1.5%
-TP_PCT = 0.03   # 3%
+BREAKOUT_PRICE = 24650000 # شکست مقاومت
+SL_PCT = 0.015            # 1.5% استاپ لاس
+TP_PCT = 0.03             # 3% تارگت
 
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not CHAT_ID: return
@@ -23,23 +23,20 @@ def send_telegram(message):
     except: pass
 
 def get_price():
-    # تلاش اول: خواندن از TGJU
+    # فقط و فقط از TGJU می‌خوانیم. هیچ حدس و محاسبه‌ای در کار نیست.
     try:
         url = "https://r.jina.ai/https://www.tgju.org/profile/gerami"
-        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=20)
+        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=25)
         if r.status_code == 200:
-            matches = re.findall(r'([2][4-5][0-9],[0-9]{3},[0-9]{3})', r.text)
-            if matches:
-                return float(matches[0].replace(",", "")) / 10
-    except: pass
-    
-    # تلاش دوم: محاسبه ریاضی
-    try:
-        gold = requests.get("https://api.gold-api.com/price/XAU", timeout=10).json()["price"]
-        usd = requests.get("https://api.nobitex.ir/v2/orderbook/USDTIRT", timeout=10).json()["lastTradePrice"]
-        return (float(gold) / 31.1034768) * 0.75 * (float(usd) / 10)
-    except: pass
-    
+            # پیدا کردن تمام اعداد فرمت‌شده (مثل 245,674,000)
+            matches = re.findall(r'([0-9]{2,3},[0-9]{3},[0-9]{3})', r.text)
+            for m in matches:
+                val = float(m.replace(",", ""))
+                # اگر عدد بین ۲۰۰ تا ۳۰۰ میلیون ریال (۲۰ تا ۳۰ میلیون تومان) بود، یعنی قیمت گرمی ۱۸ عیار است
+                if 200000000 <= val <= 300000000:
+                    return val / 10
+    except:
+        pass
     return None
 
 def load_state():
@@ -53,17 +50,15 @@ def save_state(state):
 def main():
     price = get_price()
     
+    # اگر سایت TGJU قطع بود، هیچ عدد اشتباهی نمی‌فرستیم
     if not price:
-        send_telegram("❌ متاسفانه در دریافت قیمت خطایی رخ داد.")
+        send_telegram("⚠️ خطا در ارتباط با TGJU. لطفا بعدا بررسی کنید.")
         return
-
-    # --- این خط همیشه قیمت رو به تلگرامت می‌فرسته ---
-    # send_telegram(f"💰 قیمت لحظه‌ای طلا: {price:,.0f} تومان")
 
     state = load_state()
     pos = state.get("position")
 
-    # --- بررسی استاپ‌لاس و تارگت ---
+    # --- بررسی استاپ‌لاس و تارگت (اگر قبلا خرید کرده باشیم) ---
     if pos:
         entry = pos["entry"]
         sl = entry * (1 - SL_PCT)
@@ -78,7 +73,7 @@ def main():
             state["position"] = None
             save_state(state)
 
-    # --- بررسی سیگنال خرید ---
+    # --- بررسی سیگنال خرید (اگر پوزیشن باز نداریم) ---
     else:
         if price >= BREAKOUT_PRICE:
             send_telegram(f"🚀🚀 <b>سیگنال خرید (شکست مقاومت)</b> 🚀🚀\nقیمت: {price:,.0f}\n⚡ سریع در اپ زرپین بخر!")
