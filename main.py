@@ -7,7 +7,7 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 STATE_FILE = "state.json"
 
 # --- حالت تست ---
-# این خط را فعلا True بگذار تا فقط قیمت را بفرستد و سیگنال خرید/فروش ندهد!
+# الان True است تا فقط قیمت را بفرستد و سیگنال خرید ندهد
 TEST_MODE = True 
 
 # --- تنظیمات ---
@@ -26,25 +26,27 @@ def send_telegram(message):
     except: pass
 
 def get_price():
-    # خواندن دقیق از API خود زرپین با استفاده از ۳ پروکسی مختلف
-    target_url = "https://api-khazaneh.zarpin.com/v1/prc/prices/"
-    proxies = [
-        f"https://api.allorigins.win/raw?url={target_url}",
-        f"https://api.codetabs.com/v1/proxy?quest={target_url}",
-        f"https://corsproxy.io/?{target_url}"
-    ]
-    
-    for proxy in proxies:
-        try:
-            r = requests.get(proxy, timeout=15)
-            if r.status_code == 200:
-                data = r.json()
-                # پیدا کردن دقیق GOLD_IRT از پاسخ زرپین
-                for item in data:
-                    if item.get("code") == "GOLD_IRT":
-                        return float(item["price"]) / 10  # تبدیل ریال به تومان
-        except:
-            continue
+    # اتصال به API رسمی وال‌گلد
+    try:
+        url = "https://api.wallgold.ir/api/v1/markets"
+        headers = {'Accept': 'application/json'}
+        r = requests.get(url, headers=headers, timeout=15)
+        
+        if r.status_code == 200:
+            data = r.json()
+            # بررسی ساختار داده‌ها (ممکن است یک لیست باشد یا یک دیکشنری با کلید data)
+            items = data if isinstance(data, list) else data.get('data', [])
+            
+            for item in items:
+                name = str(item.get("name", ""))
+                symbol = str(item.get("symbol", ""))
+                # جستجو برای طلای 18 عیار
+                if "18" in name or "750" in name or "18" in symbol:
+                    # قیمت در این API به تومان است
+                    return float(item.get("price"))
+    except Exception as e:
+        print(f"Error: {e}")
+        
     return None
 
 def load_state():
@@ -59,20 +61,20 @@ def main():
     price = get_price()
     
     if not price:
-        send_telegram("⚠️ خطا: سرورهای زرپین پاسخ ندادند. (هیچ سیگنالی صادر نشد)")
+        send_telegram("⚠️ خطا: سرور وال‌گلد پاسخ نداد.")
         return
 
-    # فیلتر امنیتی: اگر قیمت خارج از محدوده عقلانی بود، نادیده بگیر
+    # فیلتر امنیتی: قیمت باید بین ۲۰ تا ۳۰ میلیون تومان باشد
     if price < 20000000 or price > 30000000:
         send_telegram(f"⚠️ فیلتر امنیتی: قیمت دریافتی ({price:,.0f}) غیرمنطقی است.")
         return
 
-    # اگر حالت تست روشن باشد، فقط قیمت را می‌فرستد و کاری نمی‌کند
+    # اگر حالت تست روشن باشد، فقط قیمت را می‌فرستد
     if TEST_MODE:
-        send_telegram(f"🔍 تست موفق: قیمت دقیق زرپین دریافت شد:\n💰 {price:,.0f} تومان")
+        send_telegram(f"🔍 تست موفقیت‌آمیز وال‌گلد:\n💰 قیمت طلای ۱۸ عیار: {price:,.0f} تومان\n\n(سیگنال‌دهی فعلاً خاموش است)")
         return
 
-    # --- منطق اصلی (فعلا غیرفعال است چون TEST_MODE=True است) ---
+    # --- منطق اصلی (فعلا غیرفعال است) ---
     state = load_state()
     pos = state.get("position")
 
