@@ -1,13 +1,12 @@
 import os
 import json
 import requests
-import re
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 STATE_FILE = "state.json"
 
-# --- تنظیمات نهایی بر اساس چارت زرپین و داریک ---
+# --- تنظیمات نهایی ---
 LOW_ZONE_MIN = 24300000   # شکار کف
 LOW_ZONE_MAX = 24350000
 BREAKOUT_PRICE = 24650000 # شکست مقاومت
@@ -23,18 +22,20 @@ def send_telegram(message):
     except: pass
 
 def get_price():
-    # فقط و فقط از TGJU می‌خوانیم. هیچ حدس و محاسبه‌ای در کار نیست.
+    # خواندن مستقیم از فایل JSON مخفی TGJU (دقیق‌ترین روش)
     try:
-        url = "https://r.jina.ai/https://www.tgju.org/profile/gerami"
+        url = "https://r.jina.ai/https://call1.tgju.org/ajax.json"
         r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=25)
         if r.status_code == 200:
-            # پیدا کردن تمام اعداد فرمت‌شده (مثل 245,674,000)
-            matches = re.findall(r'([0-9]{2,3},[0-9]{3},[0-9]{3})', r.text)
-            for m in matches:
-                val = float(m.replace(",", ""))
-                # اگر عدد بین ۲۰۰ تا ۳۰۰ میلیون ریال (۲۰ تا ۳۰ میلیون تومان) بود، یعنی قیمت گرمی ۱۸ عیار است
-                if 200000000 <= val <= 300000000:
-                    return val / 10
+            text = r.text
+            start = text.find('{')
+            end = text.rfind('}') + 1
+            if start != -1 and end != 0:
+                data = json.loads(text[start:end])
+                # استخراج دقیق قیمت گرمی ۱۸ عیار
+                price_rial = data["current"]["gerami"]["p"]
+                # تبدیل ریال به تومان
+                return float(price_rial.replace(",", "")) / 10
     except:
         pass
     return None
@@ -50,15 +51,14 @@ def save_state(state):
 def main():
     price = get_price()
     
-    # اگر سایت TGJU قطع بود، هیچ عدد اشتباهی نمی‌فرستیم
+    # اگر قیمت پیدا نشد، هیچ سیگنالی صادر نمی‌کنیم (تا عدد اشتباه نره)
     if not price:
-        send_telegram("⚠️ خطا در ارتباط با TGJU. لطفا بعدا بررسی کنید.")
         return
 
     state = load_state()
     pos = state.get("position")
 
-    # --- بررسی استاپ‌لاس و تارگت (اگر قبلا خرید کرده باشیم) ---
+    # --- بررسی استاپ‌لاس و تارگت ---
     if pos:
         entry = pos["entry"]
         sl = entry * (1 - SL_PCT)
@@ -73,7 +73,7 @@ def main():
             state["position"] = None
             save_state(state)
 
-    # --- بررسی سیگنال خرید (اگر پوزیشن باز نداریم) ---
+    # --- بررسی سیگنال خرید ---
     else:
         if price >= BREAKOUT_PRICE:
             send_telegram(f"🚀🚀 <b>سیگنال خرید (شکست مقاومت)</b> 🚀🚀\nقیمت: {price:,.0f}\n⚡ سریع در اپ زرپین بخر!")
