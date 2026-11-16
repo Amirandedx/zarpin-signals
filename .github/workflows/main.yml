@@ -1,4 +1,4 @@
- name: Gold Signal Bot
+ name: Gold Signal Bot 2
 
 on:
   schedule:
