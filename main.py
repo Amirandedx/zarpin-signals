@@ -1,5 +1,6 @@
 import os
 import requests
+import re
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
@@ -14,60 +15,35 @@ def send_telegram(message):
     except Exception:
         pass
 
-def get_usd_toman():
-    # ۱. تلاش از صرافی نوبیتکس (بهترین منبع برای دلار آزاد)
-    try:
-        r = requests.get("https://api.nobitex.ir/v2/orderbook/USDTIRT", timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            return float(data["lastTradePrice"]) / 10
-    except:
-        pass
-    
-    # ۲. تلاش از CoinGecko
-    try:
-        r = requests.get("https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=irr", timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            if "tether" in data and "irr" in data["tether"]:
-                return float(data["tether"]["irr"]) / 10
-    except:
-        pass
-        
-    # ۳. قیمت پیش‌فرض (اگر اینترنت قطع بود، ربات کرش نکنه)
-    return 60000.0
-
-def get_gold_ounce_usd():
-    try:
-        r = requests.get("https://api.gold-api.com/price/XAU", timeout=10)
-        if r.status_code == 200:
-            return float(r.json()["price"])
-    except:
-        pass
-    return 2400.0 # قیمت پیش‌فرض اونس
-
 def main():
-    send_telegram("⏳ در حال محاسبه قیمت طلا از منابع جهانی...")
+    send_telegram("⏳ در حال دریافت قیمت دقیق طلا از TGJU...")
     
     try:
-        gold_oz_usd = get_gold_ounce_usd()
-        usd_toman = get_usd_toman()
+        # استفاده از Jina AI برای خواندن سایت TGJU
+        url = "https://r.jina.ai/https://www.tgju.org/profile/gerami"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        r = requests.get(url, headers=headers, timeout=25)
         
-        # محاسبه: (اونس / ۳۱.۱) * عیار ۱۸ (۰.۷۵) * قیمت دلار
-        gold_24k_gram_usd = gold_oz_usd / 31.1034768
-        gold_18k_gram_usd = gold_24k_gram_usd * 0.75
-        gold_18k_gram_toman = gold_18k_gram_usd * usd_toman
-        
-        msg = (
-            f"✅ قیمت تخمینی طلای ۱۸ عیار (گرمی):\n"
-            f"💰 {gold_18k_gram_toman:,.0f} تومان\n\n"
-            f"🌍 اونس جهانی: ${gold_oz_usd:,.0f}\n"
-            f"💵 دلار آزاد: {usd_toman:,.0f} تومان"
-        )
-        send_telegram(msg)
-        
+        if r.status_code == 200:
+            text = r.text
+            # پیدا کردن الگوی قیمت (اعداد با کاما مثل 3,450,000)
+            matches = re.findall(r'([1-9]\d{0,2}(?:,\d{3})+)', text)
+            
+            if matches:
+                # معمولاً اولین عدد بزرگ در صفحه، قیمت فعلی گرمی ۱۸ عیار است
+                price_str = matches[0]
+                price_rial = float(price_str.replace(",", ""))
+                price_toman = price_rial / 10  # تبدیل ریال به تومان
+                
+                send_telegram(f"✅ قیمت طلای ۱۸ عیار (گرمی):\n💰 {price_toman:,.0f} تومان")
+                return
+            
+            send_telegram("❌ قیمت در متن پیدا نشد.")
+        else:
+            send_telegram(f"❌ خطای سرور: {r.status_code}")
+            
     except Exception as e:
-        send_telegram(f"❌ خطا در محاسبه:\n{str(e)}")
+        send_telegram(f"❌ خطا: {str(e)}")
 
 if __name__ == "__main__":
     main()
