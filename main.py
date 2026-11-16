@@ -16,36 +16,43 @@ def send_telegram(message):
         pass
 
 def get_price():
-    urls = [
-        "https://r.jina.ai/https://api-khazaneh.zarpin.com/v1/prc/prices/",
-        "https://corsproxy.io/?url=https://api-khazaneh.zarpin.com/v1/prc/prices/",
-        "https://api.allorigins.win/raw?url=https://api-khazaneh.zarpin.com/v1/prc/prices/"
-    ]
+    # تلاش اول: پروکسی برای گرفتن از خود زرپین
+    proxy_url = "https://api.cors.lol/?url=https://api-khazaneh.zarpin.com/v1/prc/prices/"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     
-    for u in urls:
-        try:
-            r = requests.get(u, timeout=20)
-            if r.status_code == 200:
-                text = r.text
-                start = text.find('[')
-                end = text.rfind(']') + 1
-                if start != -1 and end != 0:
-                    data = json.loads(text[start:end])
-                    for item in data:
-                        if item.get("code") == "GOLD_IRT":
-                            return float(item["price"])
-        except Exception:
-            continue
-    return None
+    try:
+        r = requests.get(proxy_url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            for item in data:
+                if item.get("code") == "GOLD_IRT":
+                    return float(item["price"]), "زرپین"
+    except Exception:
+        pass # اگر نشد میره سراغ روش دوم
+
+    # تلاش دوم: گرفتن قیمت از TGJU (مرجع قیمت طلا)
+    try:
+        tgju_url = "https://call1.tgju.org/ajax.json"
+        r = requests.get(tgju_url, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            # در سایت TGJU، کلید gerami مربوط به طلای 18 عیار است
+            price_str = data['current']['gerami']['p'] # مثل "45,200,000"
+            price = float(price_str.replace(',', ''))
+            return price, "TGJU (جایگزین)"
+    except Exception as e:
+        print(f"TGJU Error: {e}")
+
+    return None, "هیچ منبعی پاسخ نداد"
 
 def main():
-    send_telegram("⏳ در حال تلاش برای دریافت قیمت از زرپین...")
-    price = get_price()
+    send_telegram("⏳ در حال تلاش برای دریافت قیمت...")
+    price, source = get_price()
     
     if price:
-        send_telegram(f"✅ قیمت با موفقیت دریافت شد:\n💰 {price:,.0f} تومان")
+        send_telegram(f"✅ قیمت با موفقیت دریافت شد (از {source}):\n💰 {price:,.0f} تومان")
     else:
-        send_telegram("❌ متاسفانه هیچکدام از واسطه‌ها جواب ندادند.")
+        send_telegram("❌ متاسفانه هیچ منبعی پاسخ نداد. لطفا بعدا تلاش کنید.")
 
 if __name__ == "__main__":
     main()
