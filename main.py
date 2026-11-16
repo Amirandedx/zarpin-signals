@@ -1,18 +1,21 @@
 import os
 import json
 import requests
-import re
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 STATE_FILE = "state.json"
 
-# --- تنظیمات نهایی ---
-LOW_ZONE_MIN = 24300000   # شکار کف
+# --- حالت تست ---
+# این خط را فعلا True بگذار تا فقط قیمت را بفرستد و سیگنال خرید/فروش ندهد!
+TEST_MODE = True 
+
+# --- تنظیمات ---
+LOW_ZONE_MIN = 24300000
 LOW_ZONE_MAX = 24350000
-BREAKOUT_PRICE = 24650000 # شکست مقاومت
-SL_PCT = 0.015            # 1.5% استاپ لاس
-TP_PCT = 0.03             # 3% تارگت
+BREAKOUT_PRICE = 24650000
+SL_PCT = 0.015
+TP_PCT = 0.03
 
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not CHAT_ID: return
@@ -23,22 +26,25 @@ def send_telegram(message):
     except: pass
 
 def get_price():
-    try:
-        url = "https://r.jina.ai/https://www.tgju.org/profile/gerami"
-        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=25)
-        if r.status_code == 200:
-            # پیدا کردن تمام اعدادی که فرمت ۳ رقمی با کاما دارند (مثل 245,000,000)
-            matches = re.findall(r'([0-9]{3},[0-9]{3},[0-9]{3})', r.text)
-            for m in matches:
-                price_rial = float(m.replace(",", ""))
-                price_toman = price_rial / 10
-                
-                # --- فیلتر امنیتی (Sanity Check) ---
-                # فقط اعدادی که بین ۲۰ تا ۳۰ میلیون تومان هستند، قیمت گرم ۱۸ عیار محسوب می‌شوند
-                if 20000000 <= price_toman <= 30000000:
-                    return price_toman
-    except:
-        pass
+    # خواندن دقیق از API خود زرپین با استفاده از ۳ پروکسی مختلف
+    target_url = "https://api-khazaneh.zarpin.com/v1/prc/prices/"
+    proxies = [
+        f"https://api.allorigins.win/raw?url={target_url}",
+        f"https://api.codetabs.com/v1/proxy?quest={target_url}",
+        f"https://corsproxy.io/?{target_url}"
+    ]
+    
+    for proxy in proxies:
+        try:
+            r = requests.get(proxy, timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                # پیدا کردن دقیق GOLD_IRT از پاسخ زرپین
+                for item in data:
+                    if item.get("code") == "GOLD_IRT":
+                        return float(item["price"]) / 10  # تبدیل ریال به تومان
+        except:
+            continue
     return None
 
 def load_state():
@@ -52,14 +58,24 @@ def save_state(state):
 def main():
     price = get_price()
     
-    # اگر قیمت پیدا نشد یا عددی خارج از محدوده بود (مثل قیمت سکه)، هیچ پیامی نمی‌فرستد
     if not price:
+        send_telegram("⚠️ خطا: سرورهای زرپین پاسخ ندادند. (هیچ سیگنالی صادر نشد)")
         return
 
+    # فیلتر امنیتی: اگر قیمت خارج از محدوده عقلانی بود، نادیده بگیر
+    if price < 20000000 or price > 30000000:
+        send_telegram(f"⚠️ فیلتر امنیتی: قیمت دریافتی ({price:,.0f}) غیرمنطقی است.")
+        return
+
+    # اگر حالت تست روشن باشد، فقط قیمت را می‌فرستد و کاری نمی‌کند
+    if TEST_MODE:
+        send_telegram(f"🔍 تست موفق: قیمت دقیق زرپین دریافت شد:\n💰 {price:,.0f} تومان")
+        return
+
+    # --- منطق اصلی (فعلا غیرفعال است چون TEST_MODE=True است) ---
     state = load_state()
     pos = state.get("position")
 
-    # --- بررسی استاپ‌لاس و تارگت ---
     if pos:
         entry = pos["entry"]
         sl = entry * (1 - SL_PCT)
@@ -73,8 +89,6 @@ def main():
             send_telegram(f"🟢🟢 <b>TAKE-PROFIT فعال شد</b> 🟢🟢\nقیمت: {price:,.0f}\nEntry: {entry:,.0f}\n⚡ سریع در اپ زرپین بفروش!")
             state["position"] = None
             save_state(state)
-
-    # --- بررسی سیگنال خرید ---
     else:
         if price >= BREAKOUT_PRICE:
             send_telegram(f"🚀🚀 <b>سیگنال خرید (شکست مقاومت)</b> 🚀🚀\nقیمت: {price:,.0f}\n⚡ سریع در اپ زرپین بخر!")
