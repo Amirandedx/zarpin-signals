@@ -8,32 +8,31 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 # --- قیمت ---
-def get_gold_price():
-    # لیستی از ۳ واسطه مختلف برای دریافت قیمت
-    proxy_urls = [
-        "https://api.codetabs.com/v1/proxy?quest=https://api-khazaneh.zarpin.com/v1/prc/prices/",
-        "https://api.allorigins.win/raw?url=https://api-khazaneh.zarpin.com/v1/prc/prices/",
-        "https://corsproxy.io/?https://api-khazaneh.zarpin.com/v1/prc/prices/"
-    ]
+ def get_gold_price():
+    import json
+    # استفاده از سرویس Jina AI برای دور زدن محدودیت IP
+    url = "https://r.jina.ai/https://api-khazaneh.zarpin.com/v1/prc/prices/"
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
     }
-    
-    # امتحان کردن واسطه‌ها یکی یکی
-    for url in proxy_urls:
-        try:
-            r = requests.get(url, headers=headers, timeout=10)
-            if r.status_code == 200:
-                data = r.json() 
+    try:
+        r = requests.get(url, headers=headers, timeout=20)
+        if r.status_code == 200:
+            text = r.text
+            start = text.find('[')
+            end = text.rfind(']') + 1
+            if start != -1 and end != 0:
+                json_str = text[start:end]
+                data = json.loads(json_str)
                 for item in data:
                     if item.get("code") == "GOLD_IRT":
                         print(f"Price found successfully!")
                         return float(item["price"])
-        except Exception:
-            continue # اگر این واسطه خراب بود، میره سراغ واسطه بعدی
-            
-    print("Error: همه واسطه‌ها خراب بودند.")
-    return None 
+    except Exception as e:
+        print(f"Error getting price: {e}")
+    
+    print("Error: could not get price.")
+    return None
 
 # --- ارسال پیام ---
 def send_telegram(message):
