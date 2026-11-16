@@ -1,0 +1,29 @@
+name: Gold Signal Bot
+
+on:
+  schedule:
+    # هر ۵ دقیقه یک‌بار اجرا می‌شود
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # این یعنی می‌تونی دستی هم اجراش کنی
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run bot
+        env:
+          # این‌ها رو در مرحله بعد تنظیم می‌کنیم
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python main.py
