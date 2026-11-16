@@ -10,8 +10,11 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 # --- قیمت ---
 def get_gold_price():
     url = "https://api-khazaneh.zarpin.com/v1/prc/prices/"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
     try:
-        r = requests.get(url, timeout=10)
+        r = requests.get(url, headers=headers, timeout=10)
         r.raise_for_status()
         for item in r.json():
             if item["code"] == "GOLD_IRT":
