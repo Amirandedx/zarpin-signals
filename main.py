@@ -7,99 +7,174 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 STATE_FILE = "state.json"
 
 # --- حالت تست ---
-# الان True است تا فقط قیمت را بفرستد و سیگنال خرید ندهد
-TEST_MODE = True 
+# تا زمانی که True باشد، فقط قیمت لحظه‌ای و سطوح سر‌به‌سر/حد سود را می‌فرستد
+TEST_MODE = True
 
-# --- تنظیمات ---
-LOW_ZONE_MIN = 24300000
-LOW_ZONE_MAX = 24350000
-BREAKOUT_PRICE = 24650000
+# --- تنظیمات کارمزد و حد سود/ضرر ---
+# مجموع کارمزد رفت و برگشت = 1% (0.5% خرید + 0.5% فروش)
+BUY_FEE_PCT = 0.005
+SELL_FEE_PCT = 0.005
+
+# سود خالص قطعی بعد از رسیدن به نقطه سر‌به‌سر (1% = 0.01)
+NET_PROFIT_PCT = 0.01
+
+# حد ضرر درصدی نسبت به قیمت ورود (1.5% = 0.015)
 SL_PCT = 0.015
-TP_PCT = 0.03
+
+# --- محدوده‌های قیمت خرید (نمونه هماهنگ با حوالی 25.4M؛ حتماً با چارت روز تنظیم کنید) ---
+LOW_ZONE_MIN = 25150000
+LOW_ZONE_MAX = 25250000
+BREAKOUT_PRICE = 25650000
+
 
 def send_telegram(message):
-    if not TELEGRAM_TOKEN or not CHAT_ID: return
+    if not TELEGRAM_TOKEN or not CHAT_ID:
+        return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
     try:
         requests.post(url, json=payload, timeout=10)
-    except: pass
+    except Exception as e:
+        print(f"Telegram send error: {e}")
+
 
 def get_price():
-    # اتصال به API رسمی وال‌گلد
     try:
         url = "https://api.wallgold.ir/api/v1/markets"
-        headers = {'Accept': 'application/json'}
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0"
+        }
         r = requests.get(url, headers=headers, timeout=15)
-        
-        if r.status_code == 200:
-            data = r.json()
-            # بررسی ساختار داده‌ها (ممکن است یک لیست باشد یا یک دیکشنری با کلید data)
-            items = data if isinstance(data, list) else data.get('data', [])
-            
-            for item in items:
-                name = str(item.get("name", ""))
-                symbol = str(item.get("symbol", ""))
-                # جستجو برای طلای 18 عیار
-                if "18" in name or "750" in name or "18" in symbol:
-                    # قیمت در این API به تومان است
-                    return float(item.get("price"))
+        r.raise_for_status()
+        data = r.json()
+
+        items = data.get("result", []) if isinstance(data, dict) else []
+        for item in items:
+            symbol = str(item.get("symbol", ""))
+            en_name = str(item.get("enName", ""))
+            base_asset = str(item.get("baseAsset", ""))
+
+            if (
+                "GLD_18C" in symbol
+                or "750" in symbol
+                or "18C" in en_name
+                or "750" in base_asset
+            ):
+                raw_price = item.get("lastPrice")
+                if raw_price is not None:
+                    return float(raw_price)
     except Exception as e:
-        print(f"Error: {e}")
-        
+        print(f"Wallgold API error: {e}")
+
     return None
+
+
+def calc_exit_levels(entry_price):
+    """
+    محاسبه نقطه سر‌به‌سر و قیمت فروش با سود خالص پس از کسر کارمزد خرید و فروش:
+    - هزینه موثر خرید = entry * (1 + BUY_FEE_PCT)
+    - قیمت سر‌به‌سر = هزینه موثر خرید / (1 - SELL_FEE_PCT)
+    - قیمت هدف فروش (پس از سر‌به‌سر + سود خالص) = breakeven * (1 + NET_PROFIT_PCT)
+    """
+    effective_buy_cost = entry_price * (1 + BUY_FEE_PCT)
+    breakeven_price = effective_buy_cost / (1 - SELL_FEE_PCT)
+    take_profit_price = breakeven_price * (1 + NET_PROFIT_PCT)
+    stop_loss_price = entry_price * (1 - SL_PCT)
+    return breakeven_price, take_profit_price, stop_loss_price
+
 
 def load_state():
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r") as f: return json.load(f)
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
     return {"position": None}
 
+
 def save_state(state):
-    with open(STATE_FILE, "w") as f: json.dump(state, f)
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
 
 def main():
     price = get_price()
-    
-    if not price:
-        send_telegram("⚠️ خطا: سرور وال‌گلد پاسخ نداد.")
+
+    if price is None:
+        send_telegram("⚠️ خطا: سرور وال‌گلد پاسخ نداد یا قیمت طلای ۱۸ عیار یافت نشد.")
         return
 
-    # فیلتر امنیتی: قیمت باید بین ۲۰ تا ۳۰ میلیون تومان باشد
-    if price < 20000000 or price > 30000000:
-        send_telegram(f"⚠️ فیلتر امنیتی: قیمت دریافتی ({price:,.0f}) غیرمنطقی است.")
+    # فیلتر امنیتی بازه قیمت منطقی
+    if price < 20000000 or price > 35000000:
+        send_telegram(f"⚠️ فیلتر امنیتی: قیمت دریافتی ({price:,.0f} تومان) خارج از بازه مجاز است.")
         return
 
-    # اگر حالت تست روشن باشد، فقط قیمت را می‌فرستد
     if TEST_MODE:
-        send_telegram(f"🔍 تست موفقیت‌آمیز وال‌گلد:\n💰 قیمت طلای ۱۸ عیار: {price:,.0f} تومان\n\n(سیگنال‌دهی فعلاً خاموش است)")
+        be_sample, tp_sample, _ = calc_exit_levels(price)
+        send_telegram(
+            f"🔍 <b>تست موفقیت‌آمیز وال‌گلد</b>\n"
+            f"💰 قیمت لحظه‌ای طلای ۱۸ عیار: <b>{price:,.0f}</b> تومان\n"
+            f"⚖️ نقطه سر‌به‌سر فرضی (۱٪ کارمزد رفت و برگشت): <b>{be_sample:,.0f}</b> تومان\n"
+            f"🎯 هدف فروش با ۱٪ سود خالص پس از سر‌به‌سر: <b>{tp_sample:,.0f}</b> تومان\n\n"
+            f"<i>(حالت تست فعال است؛ سیگنال خرید/فروش ارسال نمی‌شود)</i>"
+        )
         return
 
-    # --- منطق اصلی (فعلا غیرفعال است) ---
     state = load_state()
     pos = state.get("position")
 
     if pos:
-        entry = pos["entry"]
-        sl = entry * (1 - SL_PCT)
-        tp = entry * (1 + TP_PCT)
-        
-        if price <= sl:
-            send_telegram(f"🔴🔴 <b>STOP-LOSS فعال شد</b> 🔴🔴\nقیمت: {price:,.0f}\nEntry: {entry:,.0f}\n⚡ سریع در اپ زرپین بفروش!")
+        entry = float(pos["entry"])
+        be_price, tp_price, sl_price = calc_exit_levels(entry)
+
+        if price <= sl_price:
+            send_telegram(
+                f"🔴🔴 <b>STOP-LOSS فعال شد</b> 🔴🔴\n"
+                f"قیمت فعلی: <b>{price:,.0f}</b> تومان\n"
+                f"قیمت ورود: {entry:,.0f} تومان\n"
+                f"حد ضرر: {sl_price:,.0f} تومان\n"
+                f"⚡ سریع در اپ زرپین بفروشید!"
+            )
             state["position"] = None
             save_state(state)
-        elif price >= tp:
-            send_telegram(f"🟢🟢 <b>TAKE-PROFIT فعال شد</b> 🟢🟢\nقیمت: {price:,.0f}\nEntry: {entry:,.0f}\n⚡ سریع در اپ زرپین بفروش!")
+
+        elif price >= tp_price:
+            send_telegram(
+                f"🟢🟢 <b>TAKE-PROFIT (۱٪ سود قطعی پس از سر‌به‌سر) فعال شد</b> 🟢🟢\n"
+                f"قیمت فعلی: <b>{price:,.0f}</b> تومان\n"
+                f"قیمت ورود: {entry:,.0f} تومان\n"
+                f"نقطه سر‌به‌سر: {be_price:,.0f} تومان\n"
+                f"هدف سود: {tp_price:,.0f} تومان\n"
+                f"⚡ سریع در اپ زرپین بفروشید!"
+            )
             state["position"] = None
             save_state(state)
     else:
         if price >= BREAKOUT_PRICE:
-            send_telegram(f"🚀🚀 <b>سیگنال خرید (شکست مقاومت)</b> 🚀🚀\nقیمت: {price:,.0f}\n⚡ سریع در اپ زرپین بخر!")
+            be_p, tp_p, sl_p = calc_exit_levels(price)
+            send_telegram(
+                f"🚀🚀 <b>سیگنال خرید (شکست مقاومت)</b> 🚀🚀\n"
+                f"قیمت ورود: <b>{price:,.0f}</b> تومان\n"
+                f"⚖️ سر‌به‌سر: {be_p:,.0f} تومان\n"
+                f"🎯 هدف فروش: {tp_p:,.0f} تومان\n"
+                f"🛑 حد ضرر: {sl_p:,.0f} تومان\n"
+                f"⚡ سریع در اپ زرپین بخرید!"
+            )
             state["position"] = {"entry": price}
             save_state(state)
+
         elif LOW_ZONE_MIN <= price <= LOW_ZONE_MAX:
-            send_telegram(f"🎣🎣 <b>سیگنال خرید (شکار کف)</b> 🎣🎣\nقیمت: {price:,.0f}\n⚡ سریع در اپ زرپین بخر!")
+            be_p, tp_p, sl_p = calc_exit_levels(price)
+            send_telegram(
+                f"🎣🎣 <b>سیگنال خرید (شکار کف)</b> 🎣🎣\n"
+                f"قیمت ورود: <b>{price:,.0f}</b> تومان\n"
+                f"⚖️ سر‌به‌سر: {be_p:,.0f} تومان\n"
+                f"🎯 هدف فروش: {tp_p:,.0f} تومان\n"
+                f"🛑 حد ضرر: {sl_p:,.0f} تومان\n"
+                f"⚡ سریع در اپ زرپین بخرید!"
+            )
             state["position"] = {"entry": price}
             save_state(state)
+
 
 if __name__ == "__main__":
     main()
