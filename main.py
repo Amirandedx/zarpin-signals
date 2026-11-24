@@ -50,50 +50,62 @@ def _parse_number(val):
 
 
 def get_price():
-    try:
-        url = "https://api.wallgold.ir/api/v1/markets"
-        headers = {
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-        }
-        r = requests.get(url, headers=headers, timeout=15)
-        if r.status_code != 200:
-            return None, f"HTTP {r.status_code}: {r.text[:150]}"
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+    }
 
-        data = r.json()
-        items = (
-            data.get("result", [])
-            if isinstance(data, dict)
-            else (data if isinstance(data, list) else [])
-        )
+    endpoints = [
+        "https://api.wallgold.ir/api/v1/markets",
+        "https://api.wallgold.ir/api/v1/markets/stats",
+        "https://api.wallgold.ir/api/v1/tickers",
+    ]
 
-        for item in items:
-            if not isinstance(item, dict):
+    last_info = "پاسخی دریافت نشد."
+
+    for url in endpoints:
+        try:
+            r = requests.get(url, headers=headers, timeout=15)
+            if r.status_code != 200:
+                last_info = f"{url} -> HTTP {r.status_code}"
                 continue
-            symbol = str(item.get("symbol", "")).upper()
-            en_name = str(item.get("enName", "")).upper()
-            base_asset = str(item.get("baseAsset", "")).upper()
 
-            if "GLD_18C" in symbol or "18C" in en_name or "750" in base_asset or "750" in symbol:
-                for key in ("lastPrice", "lastBuyPrice", "lastSellPrice", "price", "buyPrice", "sellPrice"):
-                    if key in item and item.get(key) is not None:
-                        try:
-                            num = _parse_number(item.get(key))
-                            if num is not None and num > 0:
-                                return num, None
-                        except Exception:
-                            pass
+            data = r.json()
+            items = (
+                data.get("result", [])
+                if isinstance(data, dict)
+                else (data if isinstance(data, list) else [])
+            )
 
-        preview = json.dumps(items[:2], ensure_ascii=False)[:350]
-        return None, f"تعداد آیتم: {len(items)} | داده دریافتی: {preview}"
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                symbol = str(item.get("symbol", "")).upper()
+                en_name = str(item.get("enName", "")).upper()
+                base_asset = str(item.get("baseAsset", "")).upper()
 
-    except Exception as e:
-        return None, f"{type(e).__name__}: {e}"
+                if "GLD_18C" in symbol or "18C" in en_name or "750" in base_asset or "750" in symbol:
+                    for key in ("lastPrice", "lastBuyPrice", "lastSellPrice", "price", "buyPrice", "sellPrice"):
+                        if key in item and item.get(key) is not None:
+                            try:
+                                num = _parse_number(item.get(key))
+                                if num is not None and num > 0:
+                                    return num, None
+                            except Exception:
+                                pass
+
+            sample_keys = list(items[0].keys()) if items and isinstance(items[0], dict) else []
+            last_info = f"آیتم‌ها: {len(items)} | کلیدهای آیتم اول: {sample_keys}"
+
+        except Exception as e:
+            last_info = f"{url} -> {type(e).__name__}: {e}"
+
+    return None, last_info
 
 
 def calc_exit_levels(entry_price):
