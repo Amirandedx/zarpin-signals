@@ -63,7 +63,7 @@ def get_price():
         }
         r = requests.get(url, headers=headers, timeout=15)
         if r.status_code != 200:
-            return None, f"HTTP {r.status_code}: {r.text[:120]}"
+            return None, f"HTTP {r.status_code}: {r.text[:150]}"
 
         data = r.json()
         items = (
@@ -72,7 +72,6 @@ def get_price():
             else (data if isinstance(data, list) else [])
         )
 
-        # جستجو در تمام آیتم‌ها (چون ممکن است یک آیتم فقط مشخصات باشد و آیتم دیگر قیمت داشته باشد)
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -81,7 +80,7 @@ def get_price():
             base_asset = str(item.get("baseAsset", "")).upper()
 
             if "GLD_18C" in symbol or "18C" in en_name or "750" in base_asset or "750" in symbol:
-                for key in ("lastPrice", "lastBuyPrice", "lastSellPrice", "price"):
+                for key in ("lastPrice", "lastBuyPrice", "lastSellPrice", "price", "buyPrice", "sellPrice"):
                     if key in item and item.get(key) is not None:
                         try:
                             num = _parse_number(item.get(key))
@@ -90,7 +89,8 @@ def get_price():
                         except Exception:
                             pass
 
-        return None, f"در بین {len(items)} آیتم، قیمتی برای طلای ۱۸ عیار ثبت نشده بود."
+        preview = json.dumps(items[:2], ensure_ascii=False)[:350]
+        return None, f"تعداد آیتم: {len(items)} | داده دریافتی: {preview}"
 
     except Exception as e:
         return None, f"{type(e).__name__}: {e}"
