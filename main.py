@@ -6,6 +6,9 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 STATE_FILE = "state.json"
 
+# --- آدرس API لحظه‌ای طلا ۱۸ عیار از boorsi.net ---
+BOORSI_URL = "https://api.boorsi.net/api/charting/dossier/%D8%B7%D9%84%D8%A7%20%DB%B1%DB%B8%20%D8%B9%DB%8C%D8%A7%D8%B1"
+
 # --- حالت تست ---
 # True = فقط قیمت لحظه‌ای و سطوح محاسبه‌شده را می‌فرستد و سیگنال خرید/فروش نمی‌دهد
 TEST_MODE = True
@@ -21,7 +24,7 @@ NET_PROFIT_PCT = 0.01
 # حد ضرر درصدی نسبت به قیمت ورود (1.5% = 0.015)
 SL_PCT = 0.015
 
-# --- محدوده‌های قیمت خرید (نمونه هماهنگ با حوالی 25.4M؛ در صورت نیاز با چارت روز تنظیم کنید) ---
+# --- محدوده‌های قیمت خرید به تومان (هماهنگ با حوالی 25.4M؛ با چارت روز تنظیم کنید) ---
 LOW_ZONE_MIN = 25150000
 LOW_ZONE_MAX = 25250000
 BREAKOUT_PRICE = 25650000
@@ -43,7 +46,7 @@ def _parse_number(val):
         return None
     if isinstance(val, (int, float)):
         return float(val)
-    s = str(val).strip().replace(",", "").replace("٬", "")
+    s = str(val).strip().replace(",", "").replace("٬", "").replace(" ", "")
     if not s:
         return None
     return float(s)
@@ -53,6 +56,8 @@ def get_price():
     headers = {
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://boorsi.net/",
+        "Origin": "https://boorsi.net",
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -60,52 +65,37 @@ def get_price():
         ),
     }
 
-    endpoints = [
-        "https://api.wallgold.ir/api/v1/markets",
-        "https://api.wallgold.ir/api/v1/markets/stats",
-        "https://api.wallgold.ir/api/v1/tickers",
-    ]
+    try:
+        r = requests.get(BOORSI_URL, headers=headers, timeout=15)
+        if r.status_code != 200:
+            return None, f"HTTP {r.status_code}: {r.text[:150]}"
 
-    last_info = "پاسخی دریافت نشد."
+        data = r.json()
+        if not isinstance(data, dict):
+            return None, "ساختار JSON دریافتی نامعتبر است."
 
-    for url in endpoints:
-        try:
-            r = requests.get(url, headers=headers, timeout=15)
-            if r.status_code != 200:
-                last_info = f"{url} -> HTTP {r.status_code}"
-                continue
+        quote = data.get("quote") if isinstance(data.get("quote"), dict) else data
+        raw_price = None
+        for key in ("price", "lastPrice", "close", "previousClose"):
+            if isinstance(quote, dict) and quote.get(key) is not None:
+                raw_price = _parse_number(quote.get(key))
+                if raw_price is not None and raw_price > 0:
+                    break
 
-            data = r.json()
-            items = (
-                data.get("result", [])
-                if isinstance(data, dict)
-                else (data if isinstance(data, list) else [])
-            )
+        if raw_price is None:
+            return None, f"کلید قیمت در quote یافت نشد. کلیدها: {list(quote.keys()) if isinstance(quote, dict) else []}"
 
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                symbol = str(item.get("symbol", "")).upper()
-                en_name = str(item.get("enName", "")).upper()
-                base_asset = str(item.get("baseAsset", "")).upper()
+        currency = str(data.get("currency", "")).upper()
+        # تبدیل ریال به تومان در صورت IRR بودن یا بزرگ بودن عدد
+        if currency == "IRR" or raw_price > 50000000:
+            price_toman = raw_price / 10.0
+        else:
+            price_toman = raw_price
 
-                if "GLD_18C" in symbol or "18C" in en_name or "750" in base_asset or "750" in symbol:
-                    for key in ("lastPrice", "lastBuyPrice", "lastSellPrice", "price", "buyPrice", "sellPrice"):
-                        if key in item and item.get(key) is not None:
-                            try:
-                                num = _parse_number(item.get(key))
-                                if num is not None and num > 0:
-                                    return num, None
-                            except Exception:
-                                pass
+        return price_toman, None
 
-            sample_keys = list(items[0].keys()) if items and isinstance(items[0], dict) else []
-            last_info = f"آیتم‌ها: {len(items)} | کلیدهای آیتم اول: {sample_keys}"
-
-        except Exception as e:
-            last_info = f"{url} -> {type(e).__name__}: {e}"
-
-    return None, last_info
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"
 
 
 def calc_exit_levels(entry_price):
@@ -139,12 +129,12 @@ def main():
 
     if price is None:
         send_telegram(
-            f"⚠️ خطا: سرور وال‌گلد پاسخ نداد یا قیمت طلای ۱۸ عیار یافت نشد.\n"
+            f"⚠️ خطا در دریافت قیمت طلای ۱۸ عیار:\n"
             f"<code>{err_detail or 'جزئیات نامشخص'}</code>"
         )
         return
 
-    # فیلتر امنیتی بازه قیمت منطقی
+    # فیلتر امنیتی بازه قیمت منطقی (به تومان)
     if price < 20000000 or price > 35000000:
         send_telegram(f"⚠️ فیلتر امنیتی: قیمت دریافتی ({price:,.0f} تومان) خارج از بازه مجاز است.")
         return
@@ -152,7 +142,7 @@ def main():
     if TEST_MODE:
         be_sample, tp_sample, _ = calc_exit_levels(price)
         send_telegram(
-            f"🔍 <b>تست موفقیت‌آمیز وال‌گلد</b>\n"
+            f"🔍 <b>تست موفقیت‌آمیز دریافت قیمت</b>\n"
             f"💰 قیمت لحظه‌ای طلای ۱۸ عیار: <b>{price:,.0f}</b> تومان\n"
             f"⚖️ نقطه سر‌به‌سر فرضی (۱٪ کارمزد رفت و برگشت): <b>{be_sample:,.0f}</b> تومان\n"
             f"🎯 هدف فروش با ۱٪ سود خالص پس از سر‌به‌سر: <b>{tp_sample:,.0f}</b> تومان\n\n"
