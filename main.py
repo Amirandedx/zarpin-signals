@@ -38,6 +38,17 @@ def send_telegram(message):
         print(f"Telegram send error: {e}")
 
 
+def _parse_number(val):
+    if val is None or isinstance(val, bool):
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).strip().replace(",", "").replace("٬", "")
+    if not s:
+        return None
+    return float(s)
+
+
 def get_price():
     try:
         url = "https://api.wallgold.ir/api/v1/markets"
@@ -62,6 +73,8 @@ def get_price():
         )
 
         found_labels = []
+        gold_debug = ""
+
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -72,22 +85,26 @@ def get_price():
             found_labels.append(symbol or en_name or fa_name or "?")
 
             combined = f"{symbol} {en_name} {fa_name} {base_asset}".upper()
-            if (
-                "18C" in combined
-                or "750" in combined
-                or "GLD" in combined
-                or "۱۸" in fa_name
-                or "طلا" in fa_name
-            ):
-                raw_price = (
-                    item.get("lastPrice")
-                    or item.get("lastBuyPrice")
-                    or item.get("price")
-                )
-                if raw_price is not None and str(raw_price).strip() != "":
-                    return float(str(raw_price).replace(",", "")), None
+            if "GLD_18C" in combined or "18C" in combined or "750" in combined:
+                for key in ("lastPrice", "lastBuyPrice", "lastSellPrice", "price"):
+                    if key in item:
+                        try:
+                            num = _parse_number(item.get(key))
+                            if num is not None and num > 0:
+                                return num, None
+                        except Exception as parse_err:
+                            gold_debug += f"[{key}={item.get(key)!r} -> {parse_err}] "
 
-        return None, f"آیتم طلای ۱۸ عیار یافت نشد (تعداد آیتم‌ها: {len(items)} | موارد: {', '.join(found_labels[:5])})"
+                if not gold_debug:
+                    sample_fields = {
+                        k: item.get(k)
+                        for k in ("symbol", "lastPrice", "lastBuyPrice", "lastSellPrice", "price")
+                        if k in item
+                    }
+                    gold_debug = f"آیتم یافت شد اما قیمت معتبر نداشت: {sample_fields}"
+
+        detail = gold_debug or f"موارد: {', '.join(found_labels[:5])}"
+        return None, f"تعداد آیتم‌ها: {len(items)} | {detail}"
 
     except Exception as e:
         return None, f"{type(e).__name__}: {e}"
