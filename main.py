@@ -72,39 +72,25 @@ def get_price():
             else (data if isinstance(data, list) else [])
         )
 
-        found_labels = []
-        gold_debug = ""
-
+        # جستجو در تمام آیتم‌ها (چون ممکن است یک آیتم فقط مشخصات باشد و آیتم دیگر قیمت داشته باشد)
         for item in items:
             if not isinstance(item, dict):
                 continue
-            symbol = str(item.get("symbol", ""))
-            en_name = str(item.get("enName", ""))
-            fa_name = str(item.get("faName", ""))
-            base_asset = str(item.get("baseAsset", ""))
-            found_labels.append(symbol or en_name or fa_name or "?")
+            symbol = str(item.get("symbol", "")).upper()
+            en_name = str(item.get("enName", "")).upper()
+            base_asset = str(item.get("baseAsset", "")).upper()
 
-            combined = f"{symbol} {en_name} {fa_name} {base_asset}".upper()
-            if "GLD_18C" in combined or "18C" in combined or "750" in combined:
+            if "GLD_18C" in symbol or "18C" in en_name or "750" in base_asset or "750" in symbol:
                 for key in ("lastPrice", "lastBuyPrice", "lastSellPrice", "price"):
-                    if key in item:
+                    if key in item and item.get(key) is not None:
                         try:
                             num = _parse_number(item.get(key))
                             if num is not None and num > 0:
                                 return num, None
-                        except Exception as parse_err:
-                            gold_debug += f"[{key}={item.get(key)!r} -> {parse_err}] "
+                        except Exception:
+                            pass
 
-                if not gold_debug:
-                    sample_fields = {
-                        k: item.get(k)
-                        for k in ("symbol", "lastPrice", "lastBuyPrice", "lastSellPrice", "price")
-                        if k in item
-                    }
-                    gold_debug = f"آیتم یافت شد اما قیمت معتبر نداشت: {sample_fields}"
-
-        detail = gold_debug or f"موارد: {', '.join(found_labels[:5])}"
-        return None, f"تعداد آیتم‌ها: {len(items)} | {detail}"
+        return None, f"در بین {len(items)} آیتم، قیمتی برای طلای ۱۸ عیار ثبت نشده بود."
 
     except Exception as e:
         return None, f"{type(e).__name__}: {e}"
