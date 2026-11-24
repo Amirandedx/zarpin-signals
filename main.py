@@ -7,7 +7,7 @@ CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 STATE_FILE = "state.json"
 
 # --- حالت تست ---
-# تا زمانی که True باشد، فقط قیمت لحظه‌ای و سطوح سر‌به‌سر/حد سود را می‌فرستد
+# True = فقط قیمت لحظه‌ای و سطوح محاسبه‌شده را می‌فرستد و سیگنال خرید/فروش نمی‌دهد
 TEST_MODE = True
 
 # --- تنظیمات کارمزد و حد سود/ضرر ---
@@ -21,7 +21,7 @@ NET_PROFIT_PCT = 0.01
 # حد ضرر درصدی نسبت به قیمت ورود (1.5% = 0.015)
 SL_PCT = 0.015
 
-# --- محدوده‌های قیمت خرید (نمونه هماهنگ با حوالی 25.4M؛ حتماً با چارت روز تنظیم کنید) ---
+# --- محدوده‌های قیمت خرید (نمونه هماهنگ با حوالی 25.4M؛ در صورت نیاز با چارت روز تنظیم کنید) ---
 LOW_ZONE_MIN = 25150000
 LOW_ZONE_MAX = 25250000
 BREAKOUT_PRICE = 25650000
@@ -42,15 +42,28 @@ def get_price():
     try:
         url = "https://api.wallgold.ir/api/v1/markets"
         headers = {
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0"
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
         }
         r = requests.get(url, headers=headers, timeout=15)
-        r.raise_for_status()
-        data = r.json()
+        if r.status_code != 200:
+            return None, f"HTTP {r.status_code}: {r.text[:120]}"
 
-        items = data.get("result", []) if isinstance(data, dict) else []
+        data = r.json()
+        items = (
+            data.get("result", [])
+            if isinstance(data, dict)
+            else (data if isinstance(data, list) else [])
+        )
+
         for item in items:
+            if not isinstance(item, dict):
+                continue
             symbol = str(item.get("symbol", ""))
             en_name = str(item.get("enName", ""))
             base_asset = str(item.get("baseAsset", ""))
@@ -61,13 +74,18 @@ def get_price():
                 or "18C" in en_name
                 or "750" in base_asset
             ):
-                raw_price = item.get("lastPrice")
-                if raw_price is not None:
-                    return float(raw_price)
-    except Exception as e:
-        print(f"Wallgold API error: {e}")
+                raw_price = (
+                    item.get("lastPrice")
+                    or item.get("lastBuyPrice")
+                    or item.get("price")
+                )
+                if raw_price is not None and str(raw_price).strip() != "":
+                    return float(str(raw_price).replace(",", "")), None
 
-    return None
+        return None, f"آیتم طلای ۱۸ عیار یافت نشد (تعداد آیتم‌ها: {len(items)})"
+
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"
 
 
 def calc_exit_levels(entry_price):
@@ -97,10 +115,13 @@ def save_state(state):
 
 
 def main():
-    price = get_price()
+    price, err_detail = get_price()
 
     if price is None:
-        send_telegram("⚠️ خطا: سرور وال‌گلد پاسخ نداد یا قیمت طلای ۱۸ عیار یافت نشد.")
+        send_telegram(
+            f"⚠️ خطا: سرور وال‌گلد پاسخ نداد یا قیمت طلای ۱۸ عیار یافت نشد.\n"
+            f"<code>{err_detail or 'جزئیات نامشخص'}</code>"
+        )
         return
 
     # فیلتر امنیتی بازه قیمت منطقی
