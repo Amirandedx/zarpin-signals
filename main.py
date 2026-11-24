@@ -61,18 +61,23 @@ def get_price():
             else (data if isinstance(data, list) else [])
         )
 
+        found_labels = []
         for item in items:
             if not isinstance(item, dict):
                 continue
             symbol = str(item.get("symbol", ""))
             en_name = str(item.get("enName", ""))
+            fa_name = str(item.get("faName", ""))
             base_asset = str(item.get("baseAsset", ""))
+            found_labels.append(symbol or en_name or fa_name or "?")
 
+            combined = f"{symbol} {en_name} {fa_name} {base_asset}".upper()
             if (
-                "GLD_18C" in symbol
-                or "750" in symbol
-                or "18C" in en_name
-                or "750" in base_asset
+                "18C" in combined
+                or "750" in combined
+                or "GLD" in combined
+                or "۱۸" in fa_name
+                or "طلا" in fa_name
             ):
                 raw_price = (
                     item.get("lastPrice")
@@ -82,7 +87,7 @@ def get_price():
                 if raw_price is not None and str(raw_price).strip() != "":
                     return float(str(raw_price).replace(",", "")), None
 
-        return None, f"آیتم طلای ۱۸ عیار یافت نشد (تعداد آیتم‌ها: {len(items)})"
+        return None, f"آیتم طلای ۱۸ عیار یافت نشد (تعداد آیتم‌ها: {len(items)} | موارد: {', '.join(found_labels[:5])})"
 
     except Exception as e:
         return None, f"{type(e).__name__}: {e}"
